@@ -37,7 +37,7 @@ static int scull_init_module(void)
 	return 0;
 }
 
-static void scull_exit_module(void)
+static void scull_cleanup_module(void)
 {
 	dev_t dev = MKDEV(scull_major, scull_minor);
 
@@ -45,4 +45,4 @@ static void scull_exit_module(void)
 }
 
 module_init(scull_init_module);
-module_exit(scull_exit_module);
+module_exit(scull_cleanup_module);
