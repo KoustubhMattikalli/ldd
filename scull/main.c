@@ -9,10 +9,14 @@
 int scull_major = SCULL_MAJOR;
 int scull_minor = 0;
 int scull_nr_devs = SCULL_NR_DEVS;
+int scull_quantum = SCULL_QUANTUM;
+int scull_qset = SCULL_QSET;
 
 module_param(scull_major, int, S_IRUGO);
 module_param(scull_minor, int, S_IRUGO);
 module_param(scull_nr_devs, int, S_IRUGO);
+module_param(scull_quantum, int, S_IRUGO);
+module_param(scull_qset, int, S_IRUGO);
 
 MODULE_AUTHOR("Koustubh Mattikalli");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -20,6 +24,7 @@ MODULE_DESCRIPTION("scull module");
 
 struct scull_dev *scull_devices;
 
+int scull_trim(struct scull_dev *dev);
 int scull_open(struct inode *inode, struct file *filp);
 int scull_release(struct inode *inode, struct file *filp);
 ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos);
@@ -32,6 +37,29 @@ struct file_operations scull_fops = {
 	.open	 = scull_open,
 	.release = scull_release,
 };
+
+int scull_trim(struct scull_dev *dev)
+{
+	struct scull_qset *next, *dptr;
+	int qset = dev->qset;
+	int i;
+
+	for (dptr = dev->data; dptr; dptr = next) {
+		if (dptr->data) {
+			for (i = 0; i < qset; i++)
+				kfree(dptr->data[i]);
+			kfree(dptr->data);
+			dptr->data = NULL;
+		}
+		next = dptr->next;
+		kfree(dptr);
+	}
+	dev->size = 0;
+	dev->quantum = scull_quantum;
+	dev->qset = scull_qset;
+	dev->data = NULL;
+	return 0;
+}
 
 static void scull_cleanup_module(void)
 {
@@ -48,10 +76,146 @@ static void scull_cleanup_module(void)
 	unregister_chrdev_region(devno, scull_nr_devs);
 }
 
-int scull_open(struct inode *inode, struct file *filp){ return 0; }
-int scull_release(struct inode *inode, struct file *filp){ return 0; }
-ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos) { return 0; }
-ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t* f_pos) { return 0; }
+int scull_open(struct inode *inode, struct file *filp)
+{
+	struct scull_dev *dev;
+
+	dev = container_of(inode->i_cdev, struct scull_dev, cdev);
+	filp->private_data = dev;
+
+	if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
+		/* todo: semaphore */
+		scull_trim(dev);
+	}
+	return 0;
+}
+
+int scull_release(struct inode *inode, struct file *filp)
+{
+	return 0;
+}
+
+static struct scull_qset *scull_follow(struct scull_dev *dev, int n)
+{
+	struct scull_qset *qs = dev->data;
+
+	if (!qs) {
+		qs = dev->data = kmalloc(sizeof(struct scull_qset), GFP_KERNEL);
+		if (qs == NULL)
+			return NULL;
+		memset(qs, 0, sizeof(struct scull_qset));
+	}
+
+	while(n--) {
+		if (!qs->next) {
+			qs->next = kmalloc(sizeof(struct scull_qset), GFP_KERNEL);
+			if (qs->next == NULL)
+				return NULL;
+			memset(qs->next, 0, sizeof(struct scull_qset));
+
+		}
+		qs = qs->next;
+		continue;
+	}
+	return qs;
+}
+
+ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos)
+{
+	struct scull_dev *dev = filp->private_data;
+	struct scull_qset *dptr = NULL;
+	int quantum = dev->quantum;
+	int qset = dev->qset;
+	int itemsize = quantum * qset;
+	int item, s_pos, q_pos, rest;
+	ssize_t retval = 0;
+
+	/* todo: semphore */
+
+	if (*f_pos >= dev->size)
+		goto out;
+	if (*f_pos + count > dev->size)
+		count = dev->size - *f_pos;
+
+	item = (long)*f_pos / itemsize;
+	rest = (long)*f_pos % itemsize;
+	s_pos = rest / quantum;
+	q_pos = rest % quantum;
+
+	dptr = scull_follow(dev, item);
+	if (dptr == NULL || ! dptr->data || ! dptr->data[s_pos]) {
+		goto out;
+	}
+
+	/* read only upto end of this quantum */
+	if (count > quantum - q_pos)
+		count  = quantum - q_pos;
+
+	if (copy_to_user(buf, dptr->data[s_pos] + q_pos, count)) {
+		retval = -EFAULT;
+		goto out;
+	}
+
+	*f_pos += count;
+	retval = count;
+
+out:
+	/* todo: semphore */
+	return retval;
+
+}
+ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t* f_pos)
+{
+	struct scull_dev *dev = filp->private_data;
+	struct scull_qset *dptr;
+	int quantum = dev->quantum;
+	int qset = dev->qset;
+	int itemsize = quantum * qset;
+	int item, s_pos, q_pos, rest;
+	ssize_t retval = -ENOMEM;
+
+	/* todo: semphore */
+
+	item = (long)*f_pos / itemsize;
+	rest = (long)*f_pos % itemsize;
+	s_pos = rest / quantum;
+	q_pos = rest % quantum;
+
+	dptr = scull_follow(dev, item);
+	if (dptr == NULL)
+		goto out;
+
+	if (!dptr->data) {
+		dptr->data = kmalloc(qset * sizeof(char*), GFP_KERNEL);
+		if (!dptr->data) {
+			goto out;
+		}
+		memset(dptr->data, 0, qset * sizeof(char*));
+	}
+	if (!dptr->data[s_pos]) {
+		dptr->data[s_pos] = kmalloc(quantum, GFP_KERNEL);
+		if (!dptr->data[s_pos])
+			goto out;
+	}
+
+	/* write only upto end of this quantum */
+	if (count > quantum - q_pos)
+		count  = quantum - q_pos;
+
+	if (copy_from_user(dptr->data[s_pos] + q_pos, buf, count)) {
+		retval = -EFAULT;
+		goto out;
+	}
+
+	*f_pos += count;
+	retval = count;
+
+	if (dev->size < *f_pos)
+		dev->size = *f_pos;
+out:
+	/* todo: semaphore */
+	return retval;
+}
 
 static void scull_setup_cdev(struct scull_dev *dev, int index)
 {
@@ -91,6 +255,7 @@ static int scull_init_module(void)
 	}
 
 	for(i = 0; i < scull_nr_devs; i++) {
+		/* todo: Semophore init */
 		scull_setup_cdev(&scull_devices[i], i);
 	}
 
