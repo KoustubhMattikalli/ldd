@@ -15,6 +15,7 @@ module_param(scull_nr_devs, int, S_IRUGO);
 
 MODULE_AUTHOR("Koustubh Mattikalli");
 MODULE_LICENSE("Dual BSD/GPL");
+MODULE_DESCRIPTION("scull module");
 
 int scull_open(struct inode *inode, struct file *filp);
 int scull_release(struct inode *inode, struct file *filp);
