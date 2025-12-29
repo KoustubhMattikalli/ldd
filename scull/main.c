@@ -16,12 +16,30 @@ module_param(scull_nr_devs, int, S_IRUGO);
 MODULE_AUTHOR("Koustubh Mattikalli");
 MODULE_LICENSE("Dual BSD/GPL");
 
+int scull_open(struct inode *inode, struct file *filp);
+int scull_release(struct inode *inode, struct file *filp);
+ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos);
+ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t* f_pos);
+
+struct file_operations scull_fops = {
+	.owner	 = THIS_MODULE,
+	.read	 = scull_read,
+	.write	 = scull_write,
+	.open	 = scull_open,
+	.release = scull_release,
+};
+
 static void scull_cleanup_module(void)
 {
 	dev_t dev = MKDEV(scull_major, scull_minor);
 
 	unregister_chrdev_region(dev, scull_nr_devs);
 }
+
+int scull_open(struct inode *inode, struct file *filp){ return 0; }
+int scull_release(struct inode *inode, struct file *filp){ return 0; }
+ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos) { return 0; }
+ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t* f_pos) { return 0; }
 
 static int scull_init_module(void)
 {
