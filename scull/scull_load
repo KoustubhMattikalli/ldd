@@ -6,10 +6,14 @@ module="scull"
 device="scull"
 mode="644"
 
-if grep -q '^staff:' /etc/group; then
-    group="staff"
+if grep -q '^koustubh:' /etc/group; then
+	group="koustubh"
 else
-    group="wheel"
+	if grep -q '^staff:' /etc/group; then
+		group="staff"
+	else
+		group="wheel"
+	fi
 fi
 
 # invoke insmod with all the arguments we got
