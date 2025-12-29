@@ -16,6 +16,13 @@ module_param(scull_nr_devs, int, S_IRUGO);
 MODULE_AUTHOR("Koustubh Mattikalli");
 MODULE_LICENSE("Dual BSD/GPL");
 
+static void scull_cleanup_module(void)
+{
+	dev_t dev = MKDEV(scull_major, scull_minor);
+
+	unregister_chrdev_region(dev, scull_nr_devs);
+}
+
 static int scull_init_module(void)
 {
 	int result;
@@ -35,13 +42,6 @@ static int scull_init_module(void)
 	}
 
 	return 0;
-}
-
-static void scull_cleanup_module(void)
-{
-	dev_t dev = MKDEV(scull_major, scull_minor);
-
-	unregister_chrdev_region(dev, scull_nr_devs);
 }
 
 module_init(scull_init_module);
