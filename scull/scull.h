@@ -1,6 +1,24 @@
 #ifndef __SCULL_H__
 #define __SCULL_H__
 
+/*
+ * Micros to help debugging
+ */
+
+#undef PDEBUG
+#ifdef SCULL_DEBUG
+#	ifdef __KERNEL__	/* kernel space debugging */
+#		define PDEBUG(fmt, args...) printk( KERN_DEBUG "scull: " fmt, ## args)
+#	else			/* user space debugging */
+#		define PDEBUG(fmt, args...) fprintf(stderr, fmt, ## args)
+#	endif
+#else
+#	define PDEBUG(fmt, args...) /* not debugging: nothing */
+#endif
+
+#undef PDEBUGG
+#define PDEBUGG(fmt, args...) /* nothing: it's a placeholder */
+
 #ifndef SCULL_MAJOR
 #define SCULL_MAJOR 0	/* Dynamic major by default */
 #endif

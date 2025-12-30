@@ -1,3 +1,17 @@
+# Comment/uncomment the following line to disable/enable debugging
+DEBUG = y
+
+
+# Add your debugging flag (or not) to CFLAGS
+ifeq ($(DEBUG),y)
+  DEBFLAGS = -O -g -DSCULL_DEBUG # "-O" is needed to expand inlines
+else
+  DEBFLAGS = -O2
+endif
+
+ccflags-y += $(DEBFLAGS)
+ccflags-y += -I$(LDDINC)
+
 ifneq ($(KERNELRELEASE),)
 
 	# called from kernel build system
