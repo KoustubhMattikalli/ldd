@@ -4,6 +4,7 @@
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
 #include "scull.h"
 
@@ -94,6 +95,79 @@ int scull_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
 }
 #endif /* Depricated */
 
+static void *scull_seq_start(struct seq_file *s, loff_t *pos)
+{
+	if (*pos >= scull_nr_devs)
+		return NULL;
+	return scull_devices + *pos;
+}
+
+static void *scull_seq_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	(*pos)++;
+	if (*pos >= scull_nr_devs)
+		return NULL;
+	return scull_devices + *pos;
+}
+
+static void scull_seq_stop(struct seq_file *s, void *v)
+{
+	/* Actually, there is nothing to do here */
+}
+
+static int scull_seq_show(struct seq_file *s, void *v)
+{
+	struct scull_dev *dev = (struct scull_dev *) v;
+	struct scull_qset *d;
+	int i;
+
+	/* todo: semaphore */
+	seq_printf(s, "\nDevice %i: qset %i, q %i, sz %li\n",
+			(int)(dev - scull_devices), dev->qset,
+			dev->quantum, dev->size);
+	for (d = dev->data; d; d = d->next) {
+		seq_printf(s, "  item at %p, qset at %p\n", d, d->data);
+		if (d->data && !d->next) /* dump only the last item */
+			for (i = 0; i < dev->qset; i++) {
+				if (d->data[i])
+					seq_printf(s, "    % 4i: %8p\n",
+							i, d->data[i]);
+			}
+	}
+
+	/* todo: semaphore */
+	return 0;
+}
+
+static struct seq_operations scull_seq_ops = {
+	.start = scull_seq_start,
+	.next = scull_seq_next,
+	.stop = scull_seq_stop,
+	.show = scull_seq_show
+};
+
+static int scull_proc_open(struct inode *inode, struct file *filp)
+{
+	return seq_open(filp, &scull_seq_ops);
+}
+
+#if 0 /* Depricated */
+static struct file_operations scull_proc_ops = {
+	.owner = THIS_MODULE,
+	.open = scull_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release
+};
+#endif /* Depricated */
+
+static struct proc_ops scull_proc_ops = {
+	.proc_open = scull_proc_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release
+};
+
 static void scull_create_proc(void)
 {
 #if 0 /* Depricated */
@@ -101,6 +175,14 @@ static void scull_create_proc(void)
 			NULL /* parent dir */, scull_read_procmem,
 			NULL /* client data */);
 #endif /* Depricated */
+
+#if 0 /* Depricated */
+	struct proc_dir_entry *entry = create_proc_entry("scullseq", 0, NULL);
+	if (entry)
+		entry->proc_fops = &scull_proc_ops;
+#endif /* Depricated */
+
+	proc_create("scullseq", 0, NULL, &scull_proc_ops);
 }
 
 static void scull_remove_proc(void)
@@ -108,6 +190,8 @@ static void scull_remove_proc(void)
 #if 0 /* Depricated */
 	remove_proc_entry("scullmem", NULL /* parent dir */);
 #endif /* Depricated */
+
+	remove_proc_entry("scullseq", NULL);
 }
 
 #endif //SCULL_DEBUG
