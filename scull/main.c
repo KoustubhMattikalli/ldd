@@ -3,6 +3,7 @@
 #include <linux/moduleparam.h>
 #include <linux/cdev.h>
 #include <linux/slab.h>
+#include <linux/proc_fs.h>
 
 #include "scull.h"
 
@@ -61,6 +62,56 @@ int scull_trim(struct scull_dev *dev)
 	return 0;
 }
 
+#ifdef SCULL_DEBUG /* use proc only if debugging */
+
+#if 0 /* Depricated */
+int scull_read_procmem(char *buf, char **start, off_t offset, int count, int *eof, void *data)
+{
+	int i, j, len = 0;
+	int limit = count - 80; /*Don't print more then this */
+
+	for (i = 0; i < scull_nr_devs && len <= limit; i++) {
+		struct scull_dev *d = &scull_devices[i];
+		struct scull_qset *qs = d->data;
+		/* todo: semmaphore */
+		len += sprintf(buf+len, "\nDevice %i, qset %i, q %i, sz %li\n",
+				i, d->qset, d->quantum, d->size);
+		for (; qs && len <= limit; qs = qs->next) {
+			len += sprintf(buf+len, "  item at %p, qset at %p\n", qs, qs->data);
+			if (qs->data && !qs->next) { /* dump only last item */
+				for (j = 0; j < d->qset; j++) {
+					if (qs->data[j])
+						len += sprintf(buf+len, 
+								"    % 4i; %8p\n",
+								j, qs->data[j]);
+				}
+			}
+		}
+		/* todo: semaphore */
+	}
+	*eof = 1;
+	return len;
+}
+#endif /* Depricated */
+
+static void scull_create_proc(void)
+{
+#if 0 /* Depricated */
+	create_proc_read_entry("scullmem", 0 /* default mode*/,
+			NULL /* parent dir */, scull_read_procmem,
+			NULL /* client data */);
+#endif /* Depricated */
+}
+
+static void scull_remove_proc(void)
+{
+#if 0 /* Depricated */
+	remove_proc_entry("scullmem", NULL /* parent dir */);
+#endif /* Depricated */
+}
+
+#endif //SCULL_DEBUG
+
 static void scull_cleanup_module(void)
 {
 	int i;
@@ -72,6 +123,10 @@ static void scull_cleanup_module(void)
 		}
 		kfree(scull_devices);
 	}
+
+#ifdef SCULL_DEBUG
+	scull_remove_proc();
+#endif
 
 	unregister_chrdev_region(devno, scull_nr_devs);
 }
@@ -259,6 +314,9 @@ static int scull_init_module(void)
 		scull_setup_cdev(&scull_devices[i], i);
 	}
 
+#ifdef SCULL_DEBUG
+	scull_create_proc();
+#endif
 	return 0;
 
 fail:
