@@ -45,6 +45,7 @@ struct scull_dev {
 	int quantum;		/* the current quantum size */
 	int qset;		/* the current array size */
 	unsigned long size;	/* amount of data stored */
+	struct semaphore sem;	/* mutual exclusion semaphore */
 	struct cdev cdev;	/* char device structure */
 };
 
