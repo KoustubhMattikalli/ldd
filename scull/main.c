@@ -6,6 +6,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#include <asm/uaccess.h>
 #include "scull.h"
 
 int scull_major = SCULL_MAJOR;
@@ -31,11 +32,13 @@ int scull_open(struct inode *inode, struct file *filp);
 int scull_release(struct inode *inode, struct file *filp);
 ssize_t scull_read(struct file *filp, char __user *buf, size_t count, loff_t* f_pos);
 ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, loff_t* f_pos);
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 struct file_operations scull_fops = {
 	.owner	 = THIS_MODULE,
 	.read	 = scull_read,
 	.write	 = scull_write,
+	.unlocked_ioctl = scull_ioctl,
 	.open	 = scull_open,
 	.release = scull_release,
 };
@@ -360,6 +363,109 @@ ssize_t scull_write(struct file *filp, const char __user *buf, size_t count, lof
 		dev->size = *f_pos;
 out:
 	up(&dev->sem);
+	return retval;
+}
+
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	int err = 0, tmp;
+	int retval = 0;
+	
+	/*
+	 * extract the type and number bitfields, and don't decode
+	 * wrong cmds: return ENOTTY (inappropriate ioctl) before access_ok()
+	 */
+	if (_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) return -ENOTTY;	
+	if (_IOC_NR(cmd) > SCULL_IOC_MAXNR) return -ENOTTY;	
+
+	/*
+	 * the direction is bitmask, and VERIFY_WRITE catches R/W transfer.
+	 * 'Type' is user-oriented, while access_ok is kernel-roiented,
+	 * so the concept of "read" and "write" is reversed
+	 */
+	err = !access_ok((void __user *)arg, _IOC_SIZE(cmd));
+	if (err) return -EFAULT;
+	
+	switch(cmd) {
+		case SCULL_IOCRESET:
+			scull_quantum = SCULL_QUANTUM;
+			scull_qset = SCULL_QSET;
+			break;
+
+		case SCULL_IOCSQUANTUM: /* Set: arg points to the value */
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			retval = __get_user(scull_quantum, (int __user *)arg);
+			break;
+
+		case SCULL_IOCTQUANTUM: /* Tell: arg is the value */
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			scull_quantum = arg;
+			break;
+
+		case SCULL_IOCGQUANTUM: /* Get: arg points to result */
+			retval = __put_user(scull_quantum, (int __user *)arg);
+			break;
+
+		case SCULL_IOCQQUANTUM: /* Query: return it */
+			return scull_quantum;
+
+		case SCULL_IOCXQUANTUM: /* eXchange: use arg as pointer */
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			tmp = scull_quantum;
+			retval = __get_user(scull_quantum, (int __user *)arg);
+			if (retval == 0)
+				retval = __put_user(tmp, (int __user *)arg);
+			break;
+			
+		case SCULL_IOCHQUANTUM: /* sHift: like Tell + Query */
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			tmp = scull_quantum;
+			scull_quantum = arg;
+			return tmp;
+
+		case SCULL_IOCSQSET:
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			retval = __get_user(scull_qset, (int __user *)arg);
+			break;
+
+		case SCULL_IOCTQSET: 
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			scull_qset = arg;
+			break;
+
+		case SCULL_IOCGQSET:
+			retval = __put_user(scull_qset, (int __user *)arg);
+			break;
+
+		case SCULL_IOCQQSET:
+			return scull_qset;
+
+		case SCULL_IOCXQSET:
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			tmp = scull_qset;
+			retval = __get_user(scull_qset, (int __user *)arg);
+			if (retval == 0)
+				retval = __put_user(tmp, (int __user *)arg);
+			break;
+			
+		case SCULL_IOCHQSET:
+			if (! capable(CAP_SYS_ADMIN))
+				return -EPERM;
+			tmp = scull_qset;
+			scull_qset = arg;
+			return tmp;
+
+		default:
+			return -ENOTTY;
+
+	}
 	return retval;
 }
 
